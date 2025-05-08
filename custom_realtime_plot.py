@@ -7,6 +7,54 @@ import os
 from fft_utils import compute_pwelch
 from openapi.openapi_header import *
 from openapi.openapi_stream import *
+import requests
+
+class CustomDataAcquisition:
+    def __init__(self, ip, channels, frequency):
+        self.ip = ip
+        self.channels = channels
+        self.frequency = frequency
+        self.sample_rate = frequency  # Placeholder; replace with actual logic
+        self.host = f"http://{ip}"
+        self.inputport = None
+
+    def initialize_module(self):
+        print(f"Initializing data acquisition on {self.ip} for channels {self.channels} at {self.frequency} Hz")
+        try:
+            # Open recorder application
+            requests.put(self.host + "/rest/rec/open")
+            # Get default channel setup
+            response = requests.get(self.host + "/rest/rec/channels/input/default")
+            setup = response.json()
+            # Disable all channels
+            import HelpFunctions.utility as utility
+            utility.update_value("enabled", False, setup)
+            # Enable specified channels
+            for ch in self.channels:
+                setup["channels"][ch]["enabled"] = True
+            # Create input channels with the setup
+            requests.put(self.host + "/rest/rec/channels/input", json=setup)
+            # Get streaming socket port
+            response = requests.get(self.host + "/rest/rec/destination/socket")
+            self.inputport = response.json()["tcpPort"]
+            print(f"Input port set to {self.inputport}")
+            # Start measurement
+            requests.post(self.host + "/rest/rec/measurements")
+        except Exception as e:
+            print(f"Failed to initialize module: {e}")
+            self.inputport = 50000  # fallback or test port
+
+    def cleanup(self):
+        if hasattr(self, 'is_collecting') and self.is_collecting:
+            self.save_to_file()
+        if hasattr(self, 'socket'):
+            self.socket.close()
+        try:
+            requests.put(self.host + "/rest/rec/measurements/stop")
+            requests.put(self.host + "/rest/rec/finish")
+            requests.put(self.host + "/rest/rec/close")
+        except Exception as e:
+            print(f"Cleanup error: {e}")
 
 class RealTimePlotter:
     def __init__(self, data_acquisition, save_data=False, save_path=None, chunk_size=2**12):
@@ -82,7 +130,6 @@ class RealTimePlotter:
             for signal in package.content.signals:
                 if signal is not None:
                     new_data = np.array(list(map(lambda x: x.calc_value, signal.values)))
-                    # Optionally scale new_data here if needed
                     self.buffer = np.roll(self.buffer, -len(new_data))
                     self.buffer[-len(new_data):] = new_data
                     if self.is_collecting:
@@ -113,29 +160,6 @@ class RealTimePlotter:
                       ha='right', va='bottom', fontsize=8)
         ani = FuncAnimation(self.fig, self.update_plot, interval=interval)
         plt.show()
-
-
-class CustomDataAcquisition:
-    def __init__(self, ip, channels, frequency):
-        self.ip = ip
-        self.channels = channels
-        self.frequency = frequency
-        self.sample_rate = frequency  # Placeholder; replace with actual logic
-
-    def initialize_module(self):
-        # Initialize connection or hardware here
-        print(f"Initializing data acquisition on {self.ip} for channels {self.channels} at {self.frequency} Hz")
-        # Add actual initialization logic as needed
-
-    def cleanup(self):
-        if self.is_collecting:
-            self.save_to_file()
-        if hasattr(self, 'socket'):
-            self.socket.close()
-        requests.put(self.data_acq.host + "/rest/rec/measurements/stop")
-        requests.put(self.data_acq.host + "/rest/rec/finish")
-        requests.put(self.data_acq.host + "/rest/rec/close")
-
 
 def run_custom_realtime_plot(ip_address, channels, frequency, acq_time,
                              chunk_size=8192, save_path="acquired_data"):
