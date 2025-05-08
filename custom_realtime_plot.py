@@ -150,16 +150,16 @@ class RealTimePlotter:
             return self.line1, self.line2
 
     def start_plotting(self):
-        # Open socket connection
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect((self.data_acq.ip, self.data_acq.inputport))
-        # Set refresh interval to match chunk size
-        interval = int((self.chunk_size / self.data_acq.sample_rate) * 1000)
-        self.fig.suptitle('Press S to start recording', color='black')
-        self.fig.text(0.99, 0.01, 'S: Start/Stop Recording | Q: Quit', 
-                      ha='right', va='bottom', fontsize=8)
-        ani = FuncAnimation(self.fig, self.update_plot, interval=interval)
-        plt.show()
+    # Open socket connection
+    self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    self.socket.connect((self.data_acq.ip, self.data_acq.inputport))
+    # Set refresh interval to match chunk size
+    interval = int((self.chunk_size / self.data_acq.sample_rate) * 1000)
+    self.fig.suptitle('Press S to start recording', color='black')
+    self.fig.text(0.99, 0.01, 'S: Start/Stop Recording | Q: Quit', 
+                  ha='right', va='bottom', fontsize=8)
+    self.ani = FuncAnimation(self.fig, self.update_plot, interval=interval)  # <-- fix here
+    plt.show()
 
 def run_custom_realtime_plot(ip_address, channels, frequency, acq_time,
                              chunk_size=8192, save_path="acquired_data"):
