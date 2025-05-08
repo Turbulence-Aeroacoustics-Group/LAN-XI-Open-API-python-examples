@@ -64,6 +64,29 @@ def plot_spectrogram(data, sample_rate, window_size=2**12, overlap=0.5, window='
     plt.colorbar(label='Amplitude [dB]')
     plt.title('Spectrogram')
 
+
+def plot_fft(data, sample_rate, window='hamming', ax=None, method='fft', **plot_kwargs):
+    """
+    Compute and plot spectrum of time-domain data.
+    method: 'fft' or 'welch'
+    """
+    if method == 'welch':
+        freq, fft_db = compute_pwelch(data, sample_rate)
+    else:
+        freq, fft_db = compute_fft(data, sample_rate, window)
+    if ax is None:
+        ax = plt.gca()
+    line = ax.plot(freq, fft_db, **plot_kwargs)[0]
+    ax.set_xlim(0.1, max(freq))
+    ax.set_ylim(1e-2, np.max(fft_db) * 1.1)
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+    ax.grid(True)
+    ax.set_xlabel('Frequency [Hz]')
+    ax.set_ylabel('Amplitude [dB]')
+    return line
+
+
 def run_fft_analyzer(ip, channels, frequency):
     try:
         data_acq = CustomDataAcquisition(ip, channels, frequency)
@@ -105,6 +128,9 @@ def main():
     args = parser.parse_args()
     channels = [int(ch.strip()) for ch in args.channels.split(',')]
     run_fft_analyzer(args.ip, channels, args.frequency)
+
+
+
 
 if __name__ == "__main__":
     main()
