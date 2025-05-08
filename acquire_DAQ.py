@@ -8,38 +8,60 @@ from openapi.openapi_stream import *
 def acquire_data_minutes(ip, frequency, num_channels, minutes):
     """
     Acquires data for the specified number of minutes from the LAN-XI device.
-    
-    Args:
-        ip (str): IP address of the LAN-XI device.
-        frequency (int): Acquisition frequency (sample rate).
-        num_channels (int): Number of channels to enable (starting from 0).
-        minutes (float): Number of minutes to acquire data.
-    
-    Returns:
-        np.ndarray: Collected data samples, shape (n_samples, num_channels)
+    Sets up default channel config (which streams to SD card), then switches to socket streaming.
     """
     host = f"http://{ip}"
 
     # Open recorder application
-    requests.put(host + "/rest/rec/open")
-    # Get default channel setup
-    response = requests.get(host + "/rest/rec/channels/input/default")
-    setup = response.json()
+    resp = requests.put(host + "/rest/rec/open")
+    if resp.status_code != 200:
+        print(f"Failed to open recorder: {resp.status_code} {resp.text}")
+        return None
+
+    # Get default channel setup (default is SD card destination)
+    resp = requests.get(host + "/rest/rec/channels/input/default")
+    try:
+        setup = resp.json()
+    except Exception:
+        print(f"Failed to get default channel setup: {resp.status_code} {resp.text}")
+        return None
+
     # Disable all channels
     import HelpFunctions.utility as utility
     utility.update_value("enabled", False, setup)
-    # Enable specified channels and set destination to socket
+
+    # Enable specified channels and switch destination from SD card to socket
     for ch in range(num_channels):
         setup["channels"][ch]["enabled"] = True
+        # The default is usually "sdcard", so we switch it to "socket"
+        # Set both for maximum compatibility
         setup["channels"][ch]["destination"] = "socket"
+        setup["channels"][ch]["destinations"] = ["socket"]
         setup["channels"][ch]["sampleRate"] = frequency
-    # Create input channels with the setup
-    requests.put(host + "/rest/rec/channels/input", json=setup)
+
+    # Alternatively, update all with utility if you prefer:
+    # utility.update_value("destination", "socket", setup)
+    # utility.update_value("destinations", ["socket"], setup)
+
+    # Create input channels with the setup (now destination is socket, not SD card)
+    resp = requests.put(host + "/rest/rec/channels/input", json=setup)
+    if resp.status_code != 200:
+        print(f"Failed to set up input channels: {resp.status_code} {resp.text}")
+        return None
+
     # Get streaming socket port
-    response = requests.get(host + "/rest/rec/destination/socket")
-    inputport = response.json()["tcpPort"]
+    resp = requests.get(host + "/rest/rec/destination/socket")
+    try:
+        inputport = resp.json()["tcpPort"]
+    except Exception:
+        print(f"Failed to get socket port: {resp.status_code} {resp.text}")
+        return None
+
     # Start measurement
-    requests.post(host + "/rest/rec/measurements")
+    resp = requests.post(host + "/rest/rec/measurements")
+    if resp.status_code not in [200, 201, 204]:
+        print(f"Failed to start measurement: {resp.status_code} {resp.text}")
+        return None
 
     # Acquire data for the specified duration
     duration_sec = minutes * 60
