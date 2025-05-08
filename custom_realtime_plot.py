@@ -135,3 +135,14 @@ class CustomDataAcquisition:
         requests.put(self.data_acq.host + "/rest/rec/measurements/stop")
         requests.put(self.data_acq.host + "/rest/rec/finish")
         requests.put(self.data_acq.host + "/rest/rec/close")
+
+
+def run_custom_realtime_plot(ip_address, channels, frequency, acq_time,
+                             chunk_size=8192, save_path="acquired_data"):
+    """
+    Runs the custom real-time plotter.
+    """
+    data_acq = CustomDataAcquisition(ip_address, channels, frequency)
+    data_acq.initialize_module()
+    plotter = RealTimePlotter(data_acq, save_data=True, save_path=save_path, chunk_size=chunk_size)
+    plotter.start_plotting()
