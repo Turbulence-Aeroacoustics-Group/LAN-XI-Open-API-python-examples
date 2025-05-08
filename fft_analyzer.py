@@ -9,6 +9,9 @@ import matplotlib.pyplot as plt
 from custom_realtime_plot import CustomDataAcquisition
 import requests
 import argparse
+from scipy.signal import welch
+from fft_utils import compute_pwelch
+
 
 def compute_fft(data, sample_rate, window='hamming'):
     """
@@ -65,26 +68,15 @@ def plot_spectrogram(data, sample_rate, window_size=2**12, overlap=0.5, window='
     plt.title('Spectrogram')
 
 
-def plot_fft(data, sample_rate, window='hamming', ax=None, method='fft', **plot_kwargs):
+def compute_pwelch(data, sample_rate, nperseg=None):
     """
-    Compute and plot spectrum of time-domain data.
-    method: 'fft' or 'welch'
+    Compute PSD using Welch's method and return frequency and dB values.
     """
-    if method == 'welch':
-        freq, fft_db = compute_pwelch(data, sample_rate)
-    else:
-        freq, fft_db = compute_fft(data, sample_rate, window)
-    if ax is None:
-        ax = plt.gca()
-    line = ax.plot(freq, fft_db, **plot_kwargs)[0]
-    ax.set_xlim(0.1, max(freq))
-    ax.set_ylim(1e-2, np.max(fft_db) * 1.1)
-    ax.set_xscale('log')
-    ax.set_yscale('log')
-    ax.grid(True)
-    ax.set_xlabel('Frequency [Hz]')
-    ax.set_ylabel('Amplitude [dB]')
-    return line
+    if nperseg is None:
+        nperseg = min(1024, len(data))
+    freq, psd = welch(data, fs=sample_rate, nperseg=nperseg)
+    psd_db = 10 * np.log10(psd + 1e-20)
+    return freq, psd_db
 
 
 def run_fft_analyzer(ip, channels, frequency):

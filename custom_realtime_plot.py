@@ -4,7 +4,7 @@ from matplotlib.animation import FuncAnimation
 import socket
 import time
 import os
-from fft_analyzer import compute_pwelch
+from fft_utils import compute_pwelch
 from openapi.openapi_header import *
 from openapi.openapi_stream import *
 
