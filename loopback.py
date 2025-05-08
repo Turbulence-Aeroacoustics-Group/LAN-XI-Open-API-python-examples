@@ -16,7 +16,7 @@
 # The first step is opening the recorder application on the device. This is done by sending an HTTP PUT request to the device
 import requests
 
-ip = "10.100.36.196"
+ip = "169.254.230.53"
 host = "http://" + ip
 
 # Open recorder application, enable TEDS detection at startup
