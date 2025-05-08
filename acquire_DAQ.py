@@ -1,49 +1,50 @@
 import requests
 import socket
 import numpy as np
-import time
 from openapi.openapi_header import *
 from openapi.openapi_stream import *
+import HelpFunctions.utility as utility
 
 def acquire_data_loopback(ip, frequency, num_channels, minutes):
     host = f"http://{ip}"
 
+    # Close recorder application (as in loopback.py)
+    requests.put(host + "/rest/rec/close")
     # Open recorder application
     requests.put(host + "/rest/rec/open")
+    # Get module info
     requests.get(host + "/rest/rec/module/info")
+    # Create a new recording
     requests.put(host + "/rest/rec/create")
+    # Get default input channel setup
     response = requests.get(host + "/rest/rec/channels/input/default")
     setup = response.json()
-
-    # Print available channels for debugging
-    print(f"Total channels in setup: {len(setup['channels'])}")
-    for idx, ch in enumerate(setup['channels']):
-        print(f"Channel {idx}: enabled={ch['enabled']}, number={ch.get('number', idx)}")
-
-    # Disable all channels
-    import HelpFunctions.utility as utility
+    # Set all channels to stream to socket and disable all
+    utility.update_value("destinations", ["socket"], setup)
     utility.update_value("enabled", False, setup)
-
-    # Enable specified channels and set destination to socket
-    available_channels = [i for i, ch in enumerate(setup["channels"])]
-    for ch in available_channels[:num_channels]:
-        setup["channels"][ch]["enabled"] = True
-        setup["channels"][ch]["destination"] = "socket"
-        setup["channels"][ch]["destinations"] = ["socket"]
-        setup["channels"][ch]["sampleRate"] = frequency
-
+    # Enable only the requested channels
+    for idx in range(num_channels):
+        setup["channels"][idx]["enabled"] = True
+        setup["channels"][idx]["sampleRate"] = frequency
+    # Create input channels with the setup
     requests.put(host + "/rest/rec/channels/input", json=setup)
+    # Get streaming socket port
     response = requests.get(host + "/rest/rec/destination/socket")
     inputport = response.json()["tcpPort"]
+    # Start measurement
     requests.post(host + "/rest/rec/measurements")
 
-    duration_sec = minutes * 60
-    collected = []
-    start_time = time.time()
+    # Calculate number of samples to collect
+    sample_rate = frequency
+    seconds = minutes * 60
+    N = int(sample_rate * seconds)
+    array = np.array([])
+    interpretations = [{} for _ in range(num_channels)]
 
+    # Stream and parse data
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((ip, inputport))
-        while (time.time() - start_time) < duration_sec:
+        while array.size < N * num_channels:
             data = s.recv(28)
             wstream = OpenapiHeader.from_bytes(data)
             content_length = wstream.content_length + 28
@@ -51,22 +52,23 @@ def acquire_data_loopback(ip, frequency, num_channels, minutes):
                 packet = s.recv(content_length - len(data))
                 data += packet
             package = OpenapiStream.from_bytes(data)
+            if package.header.message_type == OpenapiStream.Header.EMessageType.e_interpretation:
+                for interp in package.content.interpretations:
+                    ch_idx = interp.signal_id - 1
+                    if 0 <= ch_idx < num_channels:
+                        interpretations[ch_idx][interp.descriptor_type] = interp.value
             if package.header.message_type == OpenapiStream.Header.EMessageType.e_signal_data:
-                # Build a 2D array: shape (n_samples, n_channels)
-                signal_arrays = []
                 for signal in package.content.signals:
                     if signal is not None:
-                        signal_arrays.append([x.calc_value for x in signal.values])
-                # Transpose if needed to get (n_samples, n_channels)
-                if signal_arrays:
-                    arr = np.array(signal_arrays).T  # shape: (n_samples, n_channels)
-                    collected.append(arr)
-
-    if collected:
-        data = np.vstack(collected)  # shape: (total_samples, n_channels)
-        return data
-    else:
-        return np.empty((0, num_channels))
+                        sensitivity = 1  # Use 1 if not using TEDS
+                        array = np.append(
+                            array,
+                            np.array([x.calc_value * sensitivity for x in signal.values])
+                        )
+    # Reshape to (samples, channels)
+    total_samples = array.size // num_channels
+    data = array[:total_samples * num_channels].reshape((total_samples, num_channels))
+    return data
 
 # Example usage:
 # data = acquire_data_loopback("169.254.230.53", 51200, 2, 2)
