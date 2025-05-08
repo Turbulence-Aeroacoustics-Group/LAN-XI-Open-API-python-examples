@@ -1,13 +1,16 @@
-import requests
-import socket
-import numpy as np
-from openapi.openapi_header import *
-from openapi.openapi_stream import *
-import HelpFunctions.utility as utility
-
-def acquire_data_loopback(ip, sample_rate, minutes):
+def acquire_loopback_5seconds():
+    import requests
+    import socket
+    import numpy as np
+    from openapi.openapi_header import *
+    from openapi.openapi_stream import *
+    import HelpFunctions.utility as utility
+    
+    # Hardcoded parameters (like in loopback.py)
+    ip = "169.254.230.53"  # Default LAN-XI IP
+    sample_rate = 51200     # Default sample rate
     host = f"http://{ip}"
-
+    
     # Close recorder application if already open
     requests.put(host + "/rest/rec/close")
     # Open recorder application
@@ -36,8 +39,8 @@ def acquire_data_loopback(ip, sample_rate, minutes):
     # Start measurement
     response = requests.post(host + "/rest/rec/measurements")
     
-    # Calculate number of samples to collect
-    N = sample_rate * minutes * 60  # Collect n minutes of samples
+    # Hardcoded to collect 5 seconds of data
+    N = sample_rate * 5  # Collect 5 seconds of samples
     array = np.array([])
     interpretations = [{}]
     
@@ -58,14 +61,12 @@ def acquire_data_loopback(ip, sample_rate, minutes):
             if package.header.message_type == OpenapiStream.Header.EMessageType.e_interpretation:
                 for interpretation in package.content.interpretations:
                     interpretations[interpretation.signal_id - 1][interpretation.descriptor_type] = interpretation.value 
-            # Here we parse the data into a StreamPackage
+            # Parse the data again
             package = OpenapiStream.from_bytes(data)
-            if package.header.message_type == OpenapiStream.Header.EMessageType.e_signal_data:  # If the data contains signal data
-                for signal in package.content.signals:  # For each signal in the package
+            if package.header.message_type == OpenapiStream.Header.EMessageType.e_signal_data:
+                for signal in package.content.signals:
                     if signal != None:
-                        # Sensitivity can not come from TEDS, set it to a default value
                         sensitivity = 1
-                        # We append the data to an array and continue
                         array = np.append(array, np.array([x.calc_value * sensitivity for x in signal.values]))
     
     # Stop measurements
@@ -74,5 +75,5 @@ def acquire_data_loopback(ip, sample_rate, minutes):
     
     # No output, no plot, no print statements
 
-# Example usage:
-# acquire_data_loopback("169.254.230.53", 51200, 2)
+# Simply call the function with no parameters
+# acquire_loopback_5seconds()
