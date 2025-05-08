@@ -10,39 +10,33 @@ def acquire_data_loopback(ip, frequency, num_channels, minutes):
 
     # Open recorder application
     requests.put(host + "/rest/rec/open")
-
-    # Get module info (optional, but in loopback.py)
     requests.get(host + "/rest/rec/module/info")
-
-    # Create a new recording
     requests.put(host + "/rest/rec/create")
-
-    # Get default channel setup
     response = requests.get(host + "/rest/rec/channels/input/default")
     setup = response.json()
+
+    # Print available channels for debugging
+    print(f"Total channels in setup: {len(setup['channels'])}")
+    for idx, ch in enumerate(setup['channels']):
+        print(f"Channel {idx}: enabled={ch['enabled']}, number={ch.get('number', idx)}")
 
     # Disable all channels
     import HelpFunctions.utility as utility
     utility.update_value("enabled", False, setup)
 
     # Enable specified channels and set destination to socket
-    for ch in range(num_channels):
+    available_channels = [i for i, ch in enumerate(setup["channels"])]
+    for ch in available_channels[:num_channels]:
         setup["channels"][ch]["enabled"] = True
         setup["channels"][ch]["destination"] = "socket"
         setup["channels"][ch]["destinations"] = ["socket"]
         setup["channels"][ch]["sampleRate"] = frequency
 
-    # Create input channels with the setup
     requests.put(host + "/rest/rec/channels/input", json=setup)
-
-    # Get streaming socket port
     response = requests.get(host + "/rest/rec/destination/socket")
     inputport = response.json()["tcpPort"]
-
-    # Start measurement
     requests.post(host + "/rest/rec/measurements")
 
-    # Acquire data for the specified duration
     duration_sec = minutes * 60
     collected = []
     start_time = time.time()
@@ -58,14 +52,22 @@ def acquire_data_loopback(ip, frequency, num_channels, minutes):
                 data += packet
             package = OpenapiStream.from_bytes(data)
             if package.header.message_type == OpenapiStream.Header.EMessageType.e_signal_data:
-                row = []
-                for ch, signal in enumerate(package.content.signals):
+                # Build a 2D array: shape (n_samples, n_channels)
+                signal_arrays = []
+                for signal in package.content.signals:
                     if signal is not None:
-                        new_data = [x.calc_value for x in signal.values]
-                        row.append(new_data)
-                if row:
-                    collected.append(np.array(row).T)
-    # No print, no return, no file save, no output
+                        signal_arrays.append([x.calc_value for x in signal.values])
+                # Transpose if needed to get (n_samples, n_channels)
+                if signal_arrays:
+                    arr = np.array(signal_arrays).T  # shape: (n_samples, n_channels)
+                    collected.append(arr)
+
+    if collected:
+        data = np.vstack(collected)  # shape: (total_samples, n_channels)
+        return data
+    else:
+        return np.empty((0, num_channels))
 
 # Example usage:
-# acquire_data_loopback("169.254.230.53", 51200, 2, 2)
+# data = acquire_data_loopback("169.254.230.53", 51200, 2, 2)
+# print(data.shape)  # (samples, channels)
