@@ -5,32 +5,33 @@ from openapi.openapi_header import *
 from openapi.openapi_stream import *
 import HelpFunctions.utility as utility
 
-def acquire_data_loopback(ip, frequency, num_channels, minutes):
+def acquire_data_loopback(ip, frequency, minutes):
     host = f"http://{ip}"
 
-    # Close recorder application (as in loopback.py)
+    # Close and open recorder
     requests.put(host + "/rest/rec/close")
-    # Open recorder application
     requests.put(host + "/rest/rec/open")
-    # Get module info
     requests.get(host + "/rest/rec/module/info")
-    # Create a new recording
     requests.put(host + "/rest/rec/create")
-    # Get default input channel setup
+
+    # Get default setup for channels
     response = requests.get(host + "/rest/rec/channels/input/default")
     setup = response.json()
-    # Set all channels to stream to socket and disable all
+
+    # Replace stream destination from default SD card to socket
     utility.update_value("destinations", ["socket"], setup)
+    # Set enabled to false for all channels
     utility.update_value("enabled", False, setup)
-    # Enable only the requested channels
-    for idx in range(num_channels):
-        setup["channels"][idx]["enabled"] = True
-        setup["channels"][idx]["sampleRate"] = frequency
+    # Enable channel 0
+    setup["channels"][0]["enabled"] = True
+
     # Create input channels with the setup
     requests.put(host + "/rest/rec/channels/input", json=setup)
+
     # Get streaming socket port
     response = requests.get(host + "/rest/rec/destination/socket")
     inputport = response.json()["tcpPort"]
+
     # Start measurement
     requests.post(host + "/rest/rec/measurements")
 
@@ -39,12 +40,12 @@ def acquire_data_loopback(ip, frequency, num_channels, minutes):
     seconds = minutes * 60
     N = int(sample_rate * seconds)
     array = np.array([])
-    interpretations = [{} for _ in range(num_channels)]
+    interpretations = [{}]
 
     # Stream and parse data
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((ip, inputport))
-        while array.size < N * num_channels:
+        while array.size <= N:
             data = s.recv(28)
             wstream = OpenapiHeader.from_bytes(data)
             content_length = wstream.content_length + 28
@@ -53,23 +54,17 @@ def acquire_data_loopback(ip, frequency, num_channels, minutes):
                 data += packet
             package = OpenapiStream.from_bytes(data)
             if package.header.message_type == OpenapiStream.Header.EMessageType.e_interpretation:
-                for interp in package.content.interpretations:
-                    ch_idx = interp.signal_id - 1
-                    if 0 <= ch_idx < num_channels:
-                        interpretations[ch_idx][interp.descriptor_type] = interp.value
+                for interpretation in package.content.interpretations:
+                    interpretations[0][interpretation.descriptor_type] = interpretation.value 
             if package.header.message_type == OpenapiStream.Header.EMessageType.e_signal_data:
                 for signal in package.content.signals:
                     if signal is not None:
-                        sensitivity = 1  # Use 1 if not using TEDS
+                        sensitivity = 1
                         array = np.append(
                             array,
                             np.array([x.calc_value * sensitivity for x in signal.values])
                         )
-    # Reshape to (samples, channels)
-    total_samples = array.size // num_channels
-    data = array[:total_samples * num_channels].reshape((total_samples, num_channels))
-    return data
+    # No output, no return, no file save, no plot—completely silent
 
-# Example usage:
-# data = acquire_data_loopback("169.254.230.53", 51200, 2, 2)
-# print(data.shape)  # (samples, channels)
+# Example usage (will do nothing visible):
+# acquire_data_loopback("169.254.230.53", 51200, 2)
