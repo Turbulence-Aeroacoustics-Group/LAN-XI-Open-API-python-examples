@@ -28,7 +28,6 @@ def acquire_data_loopback(ip, frequency, num_channels, minutes):
     # Enable specified channels and set destination to socket
     for ch in range(num_channels):
         setup["channels"][ch]["enabled"] = True
-        # Set both for compatibility
         setup["channels"][ch]["destination"] = "socket"
         setup["channels"][ch]["destinations"] = ["socket"]
         setup["channels"][ch]["sampleRate"] = frequency
@@ -60,8 +59,7 @@ def acquire_data_loopback(ip, frequency, num_channels, minutes):
             package = OpenapiStream.from_bytes(data)
             if package.header.message_type == OpenapiStream.Header.EMessageType.e_signal_data:
                 row = []
-                for ch in range(num_channels):
-                    signal = package.content.signals[ch]
+                for ch, signal in enumerate(package.content.signals):
                     if signal is not None:
                         new_data = [x.calc_value for x in signal.values]
                         row.append(new_data)
